@@ -1,0 +1,179 @@
+#!/bin/bash
+#set -x
+
+PATH="/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin"
+TERM="vt100"
+export TERM PATH
+
+cleanup() {
+
+    if [ -e /sys/class/leds/led0/trigger ]; then
+        echo mmc0 > /sys/class/leds/led0/trigger
+    fi
+}
+
+trap cleanup SIGINT SIGTERM EXIT
+
+SUCCESS=0
+ERROR=1
+
+err_msg=""
+exit_code=${SUCCESS}
+
+# Functions
+f__blink() {
+    return_code=${SUCCESS}
+    blink_num="${1}"
+
+    if [ "${blink_num}" = "nothing" ]; then
+        let blink_num=-1
+    else
+        let blink_num=${blink_num}
+    fi
+
+    let stopper=0
+
+    while [ ${stopper} -eq 0 ]; do
+        f__off
+        sleep 1
+        f__on
+        sleep 1
+
+        if [ ${blink_num} -gt 0 ]; then
+            let blink_num=${blink_num}-1
+        fi
+      
+        if [ ${blink_num} -eq 0 ]; then
+            let stopper=1
+        fi
+        
+    done
+
+    f__off
+    return ${return_code}
+}
+
+f__dash() {
+
+    # on 3 seconds
+    f__on
+    sleep 3
+
+    # off
+    f__off
+}
+
+f__dot() {
+
+    # on 1 second
+    f__on
+    sleep 1
+
+    # off
+    f__off
+}
+
+f__on() {
+    echo 1 > "${green_led}"
+}
+
+f__off() {
+    echo 0 > "${green_led}"
+}
+
+f__sos() {
+    f__off
+
+    let counter=10
+
+    while [ ${counter} -gt 0 ]; do
+
+        # 3 dots
+        for i in 1 2 3 ; do
+            f__dot
+            sleep 0.5
+        done
+
+        sleep 2
+
+        # 3 dashes
+        for i in 1 2 3 ; do
+            f__dash
+            sleep 0.5
+        done
+
+        sleep 2
+
+        # 3 dots
+        for i in 1 2 3 ; do
+            f__dot
+            sleep 0.5
+        done
+
+        sleep 5
+        let counter=${counter}-1
+
+    done
+
+}
+
+# WHAT: See if we have an argument
+# WHY:  That governs the sleep pattern around blinking the LED
+#
+if [ ${exit_code} -eq ${SUCCESS} ]; then
+    green_led="/sys/class/leds/led0/brightness"
+
+    if [ -e "${green_led}" ]; then
+
+        # We accept no argument, which will blink idefinitely until CTRL-C, OR
+        # "sos", OR "blink=<N>" where <N> is a positive integer of how many times we blink
+        my_arg=$(echo "${1}" | sed -e 's?[^0-9a-z=]??g')
+
+        if [ "${my_arg}" = "" ]; then
+            my_arg="nothing"
+        fi
+
+        case ${my_arg} in 
+
+            blink=[0-9]*)
+                my_arg=$(echo "${my_arg}" | sed -e 's?[^0-9]??g')
+                f__blink ${my_arg}
+            ;;
+
+            nothing)
+                f__blink ${my_arg}
+            ;;
+
+            sos)
+                f__sos
+            ;;
+
+            help|h)
+                my_name=$(basename "${0}")
+                err_msg="    Usage:  ${my_name} [blink=<positive integer>|sos]\n\n        where:\n <no argument> ==> blink repeatedly\n blink=<N>     ==> blink <N> times\n sos           ==> blink S O S in morse code repeatedly"
+                exit_code=${ERROR}
+            ;;
+
+        esac
+
+    else
+        err_msg="No available LED for identification"
+        exit_code=${ERROR}
+    fi
+
+fi
+
+# WHAT: Complain if necessary then exit
+# WHY:  Success or failure, either way we are through!
+#
+if [ ${exit_code} -ne ${SUCCESS} ]; then
+
+    if [ "${err_msg}" != "" ]; then
+        echo
+        echo -ne "    ERROR:  ${err_msg} ... processing halted\n"
+        echo
+    fi
+
+fi
+
+exit ${exit_code}
